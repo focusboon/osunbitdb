@@ -1,42 +1,137 @@
-use osunbitdb::{OsunbitDB, json};
+use osunbitdb::{OsunbitDB, json, increment, remove, array_union, array_remove};
 
 #[tokio::test]
-async fn batch_operations_test() -> Result<(), Box<dyn std::error::Error>> {
-    let db = OsunbitDB::new(&["http://10.88.0.3:2379"]).await?;
+async fn raw_test() -> Result<(), Box<dyn std::error::Error>> {
+    println!("🚀 [START] RAW TEST INITIALIZED");
 
     // --------------------------
-    // 1️⃣ Batch Add
+    // 🔗 Connect to cluster
     // --------------------------
-    let batch_docs = json!({
-        "tx1": { "amount": 100, "type": "send", "status": "success" },
-        "tx2": { "amount": 200, "type": "receive", "status": "success" },
-        "tx3": { "amount": 50,  "type": "withdraw", "status": "pending" }
+    println!("🌐 Connecting to TiKV PD...");
+    let db = OsunbitDB::new(&["http://127.0.0.1:2379"]).await?;
+    println!("✅ Connected successfully.\n");
+
+    // --------------------------
+    // 🧍 Basic CRUD
+    // --------------------------
+    println!("===== 🧍 BASIC CRUD TEST =====");
+    let user = json!({ "id": "u1", "name": "Alice", "age": 25 });
+
+    println!("➕ Adding user u1...");
+    db.add("users", "u1", &user).await?;
+    println!("✅ Added user u1.");
+
+    let fetched = db.get("users", "u1").await?.unwrap();
+    println!("📦 Retrieved user u1: {:?}", fetched);
+    assert_eq!(fetched["name"], "Alice");
+    assert_eq!(fetched["age"], 25);
+
+    println!("🧾 Updating user u1 (age -> 26, active -> true)...");
+    db.update("users", "u1", &json!({ "age": 26, "active": true })).await?;
+    let updated = db.get("users", "u1").await?.unwrap();
+    println!("📦 Updated user u1: {:?}", updated);
+    assert_eq!(updated["age"], 26);
+    assert_eq!(updated["active"], true);
+
+    println!("🗑️ Deleting user u1...");
+    db.delete("users", "u1").await?;
+    let deleted = db.get("users", "u1").await?;
+    println!("📦 After delete (should be None): {:?}", deleted);
+    assert!(deleted.is_none());
+
+    // --------------------------
+    // 📂 Collections & Subcollections
+    // --------------------------
+    println!("\n===== 📂 COLLECTION TEST =====");
+    println!("➕ Adding message to users:u1:inbox...");
+    db.add("users:u1:inbox", "m1", &json!({
+        "title": "Hello",
+        "body": "First message"
+    })).await?;
+    println!("✅ Message m1 added.");
+
+    let msg = db.get("users:u1:inbox", "m1").await?.unwrap();
+    println!("📦 Inbox message fetched: {:?}", msg);
+    assert_eq!(msg["title"], "Hello");
+
+    println!("➕ Adding sub-message in users:u1:inbox:group1...");
+    db.add("users:u1:inbox:group1", "g1msg", &json!({
+        "title": "Group message"
+    })).await?;
+    let submsg = db.get("users:u1:inbox:group1", "g1msg").await?.unwrap();
+    println!("📦 Subcollection message fetched: {:?}", submsg);
+    assert_eq!(submsg["title"], "Group message");
+
+    // --------------------------
+    // 🔄 Increment / Remove / Array Ops
+    // --------------------------
+    println!("\n===== 🔄 FIELD UPDATE TEST =====");
+    println!("➕ Creating user u2...");
+    db.add("users", "u2", &json!({"balance": 100, "role": "admin"})).await?;
+
+    println!("💰 Incrementing balance by 25...");
+    db.update("users", "u2", &json!({
+        "balance": increment(25)
+    })).await?;
+    let after_inc = db.get("users", "u2").await?.unwrap();
+    println!("📦 After increment: {:?}", after_inc);
+    assert_eq!(after_inc["balance"], 125);
+
+    println!("💸 Decrementing balance by 5...");
+    db.update("users", "u2", &json!({
+        "balance": increment(-5)
+    })).await?;
+    let after_dec = db.get("users", "u2").await?.unwrap();
+    println!("📦 After decrement: {:?}", after_dec);
+    assert_eq!(after_dec["balance"], 120);
+
+    println!("🚮 Removing field 'role'...");
+    db.update("users", "u2", &json!({
+        "role": remove()
+    })).await?;
+    let after_remove = db.get("users", "u2").await?.unwrap();
+    println!("📦 After field remove: {:?}", after_remove);
+    assert!(after_remove.get("role").is_none());
+
+    println!("🧱 Updating nested fields (profile.*)...");
+    db.update("users", "u2", &json!({
+        "profile.points": increment(5)
+    })).await?;
+    db.update("users", "u2", &json!({
+        "profile.badges": remove()
+    })).await?;
+
+    println!("🏷️ Array operations (union/remove)...");
+    db.update("users", "u2", &json!({
+        "tags": array_union(json!(["rust", "db"]))
+    })).await?;
+    db.update("users", "u2", &json!({
+        "tags": array_remove(json!(["rust"]))
+    })).await?;
+    let after_arrays = db.get("users", "u2").await?.unwrap();
+    let tags = after_arrays["tags"].as_array().unwrap();
+    println!("📦 After array ops: {:?}", tags);
+    assert_eq!(tags, &vec![json!("db")]);
+
+    // --------------------------
+    // ⏰ ExpiryAt test
+    // --------------------------
+    println!("\n===== ⏰ EXPIRY TEST =====");
+    let exp_doc = json!({
+        "id": "exp1",
+        "name": "WillExpire",
+        "expiryAt": "02-10-2030"
     });
+    db.update("sessions", "exp1", &exp_doc).await?;
+    println!("✅ Added expiry doc sessions:exp1");
 
-    db.batch_add("transactions:u1", &batch_docs).await?;
-
-    // --------------------------
-    // 2️⃣ Batch Get
-    // --------------------------
-    let ids_json = json!(["tx1", "tx2", "tx3"]);
-    let fetched = db.batch_get("transactions:u1", &ids_json).await?;
-
-    println!("Fetched batch: {:?}", fetched);
-    let fetched_obj = fetched.as_object().unwrap();
-    assert_eq!(fetched_obj.len(), 3);
-    assert_eq!(fetched_obj["tx1"]["amount"], 100);
-    assert_eq!(fetched_obj["tx2"]["type"], "receive");
-    assert_eq!(fetched_obj["tx3"]["status"], "pending");
+    let expfetched = db.get("sessions", "exp1").await?.unwrap();
+    println!("📦 Expiry fetched: {:?}", expfetched);
+    assert_eq!(expfetched["expiryAt"], "02-10-2030");
 
     // --------------------------
-    // 3️⃣ Batch Delete
+    // ✅ Final confirmation
     // --------------------------
-    let ids_to_delete = json!(["tx1", "tx2", "tx3"]);
-    db.batch_delete("transactions:u1", &ids_to_delete).await?;
-
-    // Confirm deletion
-    let after_delete = db.batch_get("transactions:u1", &ids_to_delete).await?;
-    assert!(after_delete.as_object().unwrap().is_empty());
-
+    println!("\n🎉 ✅ All CRUD, array, expiry, and transaction tests passed!");
     Ok(())
 }

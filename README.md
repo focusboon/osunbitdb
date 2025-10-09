@@ -171,10 +171,12 @@ use osunbitdb::{OsunbitDB, json, increment, remove};
 
 ```rust
 // scan first 10
-let scanned = db.scan("users", 10, "").await?;
+
+// "a" for ascending order & "d" for descending order
+let scanned = db.scan("users", 10, "", "a").await?;
 
 // scan 10 from id
-let scanned_from_id = db.scan("users", 10, "id").await?;
+let scanned_from_id = db.scan("users", 10, "id", "a").await?;
 
 let batch_docs = json!({
     "tx1": {"amount": 100, "type": "send"},

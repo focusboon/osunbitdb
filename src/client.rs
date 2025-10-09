@@ -47,9 +47,9 @@ impl OsunbitDB {
         Ok(())
     }
 
-    pub async fn scan(&self, collection: &str, limit: u32, cursor: &str,) -> Result<JsonValue, OsunbitDBError> {
+    pub async fn scan(&self, collection: &str, limit: u32, cursor: &str, order: &str,) -> Result<JsonValue, OsunbitDBError> {
         let mut tx = self.transaction().await?;
-        let result = tx.scan(collection, limit, cursor).await?;
+        let result = tx.scan(collection, limit, cursor, order).await?;
         tx.rollback().await?;
         Ok(result)
     }
@@ -64,7 +64,7 @@ impl OsunbitDB {
     pub async fn batch_get(&self, collection: &str, ids_json: &JsonValue) -> Result<JsonValue, OsunbitDBError> {
         let mut tx = self.transaction().await?;
         let res = tx.batch_get(collection, ids_json).await?;
-        tx.rollback().await?;
+        let _ = tx.rollback().await;
         Ok(res)
     }
 

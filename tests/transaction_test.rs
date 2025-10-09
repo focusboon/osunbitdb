@@ -2,7 +2,7 @@ use osunbitdb::{OsunbitDB, json, increment, remove};
 
 #[tokio::test]
 async fn transaction_atomic_ops_test() {
-    let db = OsunbitDB::new(&["http://10.88.0.3:2379"]).await.unwrap();
+    let db = OsunbitDB::new(&["http://127.0.0.1:2379"]).await.unwrap();
 
     // --------------------------
     // Seed user

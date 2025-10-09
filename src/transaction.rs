@@ -124,58 +124,51 @@ pub async fn update(
         Ok(())
     }
 
-    pub async fn rollback(mut self) -> Result<(), OsunbitDBError> {
-        self.tx.rollback().await?;
-        Ok(())
-    }
+   pub async fn rollback(mut self) -> Result<(), OsunbitDBError> {
+    self.tx.rollback().await?;
+    Ok(())
+}
 pub async fn scan(
     &mut self,
     collection: &str,
     limit: u32,
     cursor: &str,
+    order: &str,
 ) -> Result<JsonValue, OsunbitDBError> {
     let prefix = format!("{}:", collection);
+    let reverse = order.eq_ignore_ascii_case("d");
 
-    // If no cursor: start from very end of collection
-    let start_key: Key = if cursor.is_empty() {
-        Key::from(format!("{}:\u{10FFFF}", collection))
+    let lowest = Key::from(format!("{}:", collection));
+    let highest = Key::from(format!("{}:\u{10FFFF}", collection));
+
+    let range: BoundRange = if reverse {
+        let upper = if cursor.is_empty() {
+            highest.clone()
+        } else {
+            Key::from(format!("{}:{}", collection, cursor)) 
+        };
+        (lowest.clone()..upper.clone()).into()
     } else {
-        Key::from(format!("{}:{}\u{10FFFF}", collection, cursor))
+        let start = if cursor.is_empty() {
+            lowest.clone()
+        } else {
+            Key::from(format!("{}:{}\u{0000}", collection, cursor))
+        };
+        (start.clone()..=highest.clone()).into()
     };
 
-    // Lowest possible key for this collection
-    let end_key: Key = Key::from(format!("{}:", collection));
-
-    // Range covers full collection space
-    let range: BoundRange = (end_key..=start_key).into();
-
-    // Fetch limit + 1 so we can safely drop the cursor
-    let kvs: Vec<KvPair> = self
-        .tx
-        .scan_reverse(range, (limit + 1) as u32)
-        .await?
-        .collect();
+let kvs: Vec<KvPair> = if reverse {
+    self.tx.scan_reverse(range, limit).await?.collect()
+} else {
+    self.tx.scan(range, limit).await?.collect()
+};
 
     let mut out = serde_json::Map::new();
-    let mut count = 0;
-
     for kv in kvs {
-        let k_bytes = kv.key().as_ref();
-        let k = String::from_utf8_lossy(k_bytes.into()).to_string();
+        let k = String::from_utf8_lossy(kv.key().as_ref().into()).to_string();
         let doc_id = k.strip_prefix(&prefix).unwrap_or(&k).to_string();
-
-        // Skip the cursor itself
-        if !cursor.is_empty() && doc_id == cursor {
-            continue;
-        }
-
         let v = serde_json::from_slice(&kv.value().to_vec()).unwrap_or(JsonValue::Null);
         out.insert(doc_id, v);
-
-        count += 1;
-        if count == limit {
-            break;
-        }
     }
 
     Ok(JsonValue::Object(out))
@@ -192,21 +185,41 @@ pub async fn batch_add(&mut self, collection: &str, items_json: &JsonValue) -> R
         Ok(())
     }
 
-    pub async fn batch_get(&mut self, collection: &str, ids_json: &JsonValue) -> Result<JsonValue, OsunbitDBError> {
-        let mut out = serde_json::Map::new();
-        if let JsonValue::Array(arr) = ids_json {
-            for id_val in arr {
-                if let Some(id) = id_val.as_str() {
-                    if let Some(doc) = self.get(collection, id).await? {
-                        out.insert(id.to_string(), doc);
-                    }
-                }
-            }
-        } else {
-            return Err(OsunbitDBError::InvalidUpdate("batch_get expects a JSON array of ids".to_string()));
+ pub async fn batch_get(
+    &mut self,
+    collection: &str,
+    ids_json: &JsonValue,
+) -> Result<JsonValue, OsunbitDBError> {
+    let mut out = serde_json::Map::new();
+
+    if let JsonValue::Array(arr) = ids_json {
+        // Build all keys
+        let keys: Vec<Key> = arr
+            .iter()
+            .filter_map(|id_val| id_val.as_str())
+            .map(|id| Key::from(format!("{}:{}", collection, id)))
+            .collect();
+
+        // ✅ Collect iterator to Vec
+        let kv_iter = self.tx.batch_get(keys).await?;
+        let kvs: Vec<KvPair> = kv_iter.collect();
+
+        for kv in kvs {
+             let full_key = String::from_utf8_lossy(kv.key().as_ref().into()).to_string();
+            let doc_id = full_key.strip_prefix(&format!("{}:", collection)).unwrap_or(&full_key);
+            let v = serde_json::from_slice(kv.value().as_ref()).unwrap_or(json!(null));
+            out.insert(doc_id.to_string(), v);
         }
         Ok(JsonValue::Object(out))
+    } else {
+        Err(OsunbitDBError::InvalidUpdate(
+            "batch_get expects a JSON array of ids".to_string(),
+        ))
     }
+}
+
+
+
 
     pub async fn batch_delete(&mut self, collection: &str, ids_json: &JsonValue) -> Result<(), OsunbitDBError> {
         if let JsonValue::Array(arr) = ids_json {
