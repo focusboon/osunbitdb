@@ -103,19 +103,6 @@ pub async fn update(
     // Persist the updated document
     self.add(collection, id, &data).await?;
 
-    // ===== TTL handling: look for expiryAt directly (string value)
-    if let Some(expiry_val) = get_deep(
-        data.as_object().expect("doc must be object"),
-        "expiryAt",
-    ) {
-        if let Some(expiry_str) = expiry_val.as_str() {
-            // key format: expire:<expiryAt>:<docid>
-            let expire_key = Key::from(format!("expire:{}:{}", expiry_str, id));
-            let expire_val = Value::from(id.as_bytes().to_vec());
-            self.tx.put(expire_key, expire_val).await?;
-        }
-    }
-
     Ok(())
 }
 

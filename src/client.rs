@@ -15,7 +15,7 @@ impl OsunbitDB {
     }
 
     pub async fn transaction(&self) -> Result<TransactionHandle, OsunbitDBError> {
-        let tx = self.client.begin_optimistic().await?;
+        let tx = self.client.begin_pessimistic().await?;
         Ok(TransactionHandle { tx })
     }
 
