@@ -1,4 +1,4 @@
-use tikv_client::TransactionClient;
+use tikv_rust::TransactionClient;
 use serde_json::Value as JsonValue;
 use crate::errors::OsunbitDBError;
 use crate::transaction::TransactionHandle;

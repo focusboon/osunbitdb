@@ -1,5 +1,5 @@
 use thiserror::Error;
-use tikv_client::Error as TiKVError;
+use tikv_rust::Error as TiKVError;
 use tokio::task::JoinError;
 use bincode;
 

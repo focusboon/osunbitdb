@@ -1,4 +1,4 @@
-use tikv_client::{Transaction, Key, Value, KvPair, BoundRange};
+use tikv_rust::{Transaction, Key, Value, KvPair, BoundRange};
 use serde_json::{Value as JsonValue, Map};
 use crate::errors::OsunbitDBError;
 use crate::utils::{set_deep, get_deep, remove_deep};
