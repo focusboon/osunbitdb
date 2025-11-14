@@ -51,12 +51,29 @@ pub async fn update(
                 if let Some(op) = v.get("__op") {
                     match op.as_str().unwrap_or("") {
                         "inc" => {
-                            let delta = v["amount"].as_i64().unwrap_or(0);
-                            let mut current_val = 0;
-                            if let Some(existing) = get_deep(obj, k).and_then(|val| val.as_i64()) {
-                                current_val = existing;
-                            }
-                            set_deep(obj, k, json!(current_val + delta));
+                            let amount_val = &v["amount"];
+
+                            // Read existing value (can be i64 or f64)
+                            let existing_val = get_deep(obj, k);
+
+                            let new_val = match (existing_val, amount_val) {
+                                // Both integers
+                                (Some(e), a) if e.is_i64() && a.is_i64() => {
+                                    JsonValue::from(e.as_i64().unwrap() + a.as_i64().unwrap())
+                                }
+
+                                // Anything involving floats → convert to f64
+                                (Some(e), a) => {
+                                    let current = e.as_f64().unwrap_or(0.0);
+                                    let delta = a.as_f64().unwrap_or(0.0);
+                                    JsonValue::from(current + delta)
+                                }
+
+                                // No existing value → just use amount directly
+                                (None, a) => a.clone(),
+                            };
+
+                            set_deep(obj, k, new_val);
                         }
                         "remove" => {
                             remove_deep(obj, k);

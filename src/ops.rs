@@ -1,8 +1,8 @@
 use serde_json::json;
 use serde_json::Value as Json;
 
-pub fn increment(amount: i64) -> Json {
-    json!({ "__op": "inc", "amount": amount })
+pub fn increment<T: Into<Json>>(amount: T) -> Json {
+    json!({ "__op": "inc", "amount": amount.into() })
 }
 
 pub fn remove() -> Json {

@@ -23,7 +23,7 @@ Add to `Cargo.toml`:
 
 ```toml
 [dependencies]
-osunbitdb = "0.6.0"
+osunbitdb = "0.7.0"
 ```
 
 ---
